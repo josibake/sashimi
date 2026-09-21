@@ -80,5 +80,42 @@ sh test/bench.sh pi5 45
 sh test/store_bench.sh 100 300
 ```
 
-to uninstall, remove the installed `sashimi*` files from the prefix's `bin` and
-`share/man/man1` directories.
+to uninstall, remove the installed `sashimi*` files from the prefix's `bin` and `share/man/man1` directories.
+
+## architectural overview
+
+`run` performs the initial sync, while `tail` continues using the same tools to follow new blocks. each tool can also be invoked and connected directly from the shell.
+
+### sync and state
+
+```mermaid
+flowchart LR
+    runner["run / tail"] -. orchestrates .-> catch["catch"]
+    peer["peer"] -->|headers and blocks| catch
+    catch -->|candidate headers| heads["heads"]
+    heads -->|selected chain| gaps["gaps"]
+    gaps -->|missing ranges| catch
+    catch -->|downloaded blocks| blocks[("block store")]
+    blocks --> stock["stock"]
+    stock -->|position lines| commit["commit"]
+    catch -->|new position lines| commit
+    commit --> state[("UTXO snapshots and tip")]
+```
+
+### validation pipeline
+
+```mermaid
+flowchart LR
+    positions["position lines"] --> spread["spread"]
+    spread --> cut["cut workers"]
+    cut -->|parsed frames| commit["commit"]
+    blocks[("block store")] -. block bytes .-> cut
+    blocks -. block bytes .-> grade["grade workers"]
+    commit -->|check records| grade
+    grade -->|signature batches| seal["seal / external verifier"]
+    seal -->|answers| grade
+    grade -->|verdicts| commit
+    commit <-->|coin commands and replies| slices["slice workers"]
+    slices --> snapshots[("UTXO snapshots")]
+    commit --> tip[("tip")]
+```
